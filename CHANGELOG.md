@@ -1,5 +1,10 @@
 # Change Log
 
+## Unreleased (major)
+
+ - `PixelBuffer` now takes the type of pixels as template parameter.
+ - Reworked `TextureDataSink` traits to take a precise format.
+
 ## Unreleased
 
  - `Display`/`GlutinFacade` now derefs to `Context`.
