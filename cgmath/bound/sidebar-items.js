@@ -1,0 +1,1 @@
+initSidebarItems({"trait":[["Bound","Generic bound."]],"enum":[["Relation","Spatial relation between two objects."]]});

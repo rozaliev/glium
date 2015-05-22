@@ -1,0 +1,1 @@
+initSidebarItems({"struct":[["Mapping","Mapping of a buffer in memory."],["SubBuffer","Represents a sub-part of a buffer."],["SubBufferAny","Represents a sub-part of a buffer."],["SubBufferAnySlice","Slice of a `SubBuffer` without any type info."],["SubBufferMutSlice","Represents a sub-part of a buffer."],["SubBufferSlice","Represents a sub-part of a buffer."]]});
