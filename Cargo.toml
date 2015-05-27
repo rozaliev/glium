@@ -29,7 +29,8 @@ gl_texture_multisample_array = []
 headless = []
 
 [dependencies.glutin]
-version = "0.1.6"
+git = "https://github.com/rozaliev/glutin.git"
+branch = "feature/ios"
 features = ["window"]
 optional = true
 
