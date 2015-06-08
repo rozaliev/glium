@@ -12,17 +12,19 @@ use RawUniformValue;
 use context::Context;
 use ContextExt;
 use QueryExt;
+use TransformFeedbackSessionExt;
 
 use utils::bitsfield::Bitsfield;
 
-use fbo::{self, FramebufferAttachments};
+use fbo::{self, ValidatedAttachments};
 
 use sync;
+use buffer::BufferType;
 use uniforms::{Uniforms, UniformValue, SamplerBehavior};
 use sampler_object::SamplerObject;
 use {Program, GlObject, ToGlEnum};
 use index::{self, IndicesSource};
-use vertex::{MultiVerticesSource, VerticesSource};
+use vertex::{MultiVerticesSource, VerticesSource, TransformFeedbackSession};
 use vertex_array_object::VertexAttributesSystem;
 
 use draw_parameters::DrawParameters;
@@ -39,7 +41,7 @@ use version::Version;
 use version::Api;
 
 /// Draws everything.
-pub fn draw<'a, U, V>(context: &Context, framebuffer: Option<&FramebufferAttachments>,
+pub fn draw<'a, U, V>(context: &Context, framebuffer: Option<&ValidatedAttachments>,
                       vertex_buffers: V, indices: IndicesSource,
                       program: &Program, uniforms: &U, draw_parameters: &DrawParameters,
                       dimensions: (u32, u32)) -> Result<(), DrawError>
@@ -88,6 +90,7 @@ pub fn draw<'a, U, V>(context: &Context, framebuffer: Option<&FramebufferAttachm
     let (vertices_count, instances_count) = {
         let ib_id = match indices {
             IndicesSource::IndexBuffer { ref buffer, .. } => buffer.get_buffer_id(&mut ctxt),
+            IndicesSource::MultidrawArray { .. } => 0,
             IndicesSource::NoIndices { .. } => 0,
         };
 
@@ -246,6 +249,14 @@ pub fn draw<'a, U, V>(context: &Context, framebuffer: Option<&FramebufferAttachm
                           draw_parameters.transform_feedback_primitives_written_query));
         sync_conditional_render(&mut ctxt, draw_parameters.condition);
 
+        // TODO: make sure that the program is the right one
+        // TODO: changing the current transform feedback requires pausing/unbinding before changing the program
+        if let Some(ref tf) = draw_parameters.transform_feedback {
+            tf.bind(&mut ctxt, indices.get_primitives_type());
+        } else {
+            TransformFeedbackSession::unbind(&mut ctxt);
+        }
+
         if !program.has_srgb_output() {
             if ctxt.version >= &Version(Api::Gl, 3, 0) || ctxt.extensions.gl_arb_framebuffer_srgb ||
                ctxt.extensions.gl_ext_framebuffer_srgb
@@ -282,6 +293,22 @@ pub fn draw<'a, U, V>(context: &Context, framebuffer: Option<&FramebufferAttachm
                                              data_type.to_glenum(),
                                              ptr as *const libc::c_void);
                     }
+                }
+            },
+
+            &IndicesSource::MultidrawArray { ref buffer, primitives } => {
+                let ptr: *const u8 = ptr::null_mut();
+                let ptr = unsafe { ptr.offset(buffer.get_offset_bytes() as isize) };
+
+                if let Some(fence) = buffer.add_fence() {
+                    fences.push(fence);
+                }
+
+                unsafe {
+                    buffer.bind_to(&mut ctxt, BufferType::DrawIndirectBuffer);
+                    ctxt.gl.MultiDrawArraysIndirect(primitives.to_glenum(), ptr as *const _,
+                                                    buffer.get_elements_count() as gl::types::GLsizei,
+                                                    0);
                 }
             },
 
@@ -337,12 +364,11 @@ fn bind_uniform_block<'a>(ctxt: &mut context::CommandContext, value: &UniformVal
 
             assert!(buffer.get_offset_bytes() == 0);     // TODO: not implemented
             let fence = buffer.add_fence();
-            let buffer = buffer.get_buffer_id(ctxt);
             let binding = block.binding as gl::types::GLuint;
 
             unsafe {
-                ctxt.gl.BindBufferBase(gl::UNIFORM_BUFFER, bind_point as gl::types::GLuint,
-                                       buffer);
+                buffer.indexed_bind_to(ctxt, BufferType::UniformBuffer,
+                                       bind_point as gl::types::GLuint);
                 program.set_block(ctxt, binding, bind_point as gl::types::GLuint);
             }
 

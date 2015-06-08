@@ -5,6 +5,7 @@ use backend::Facade;
 use version::Version;
 use context::Context;
 use ContextExt;
+use TextureExt;
 use version::Api;
 use Rect;
 
@@ -31,6 +32,7 @@ pub struct TextureAny {
     id: gl::types::GLuint,
     requested_format: TextureFormatRequest,
     bind_point: gl::types::GLenum,
+    ty: TextureType,
     width: u32,
     height: Option<u32>,
     depth: Option<u32>,
@@ -38,6 +40,32 @@ pub struct TextureAny {
 
     /// Number of mipmap levels (`1` means just the main texture, `0` is not valid)
     levels: u32,
+}
+
+/// Represents a specific mipmap of a texture.
+#[derive(Copy, Clone)]
+pub struct TextureAnyMipmap<'a> {
+    /// The texture.
+    texture: &'a TextureAny,
+
+    /// Layer for array textures, or 0 for other textures.
+    layer: u32,
+
+    /// Mipmap level.
+    level: u32,
+}
+
+/// Type of a texture.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[allow(missing_docs)]      // TODO: document and remove
+pub enum TextureType {
+    Texture1d,
+    Texture1dArray,
+    Texture2d,
+    Texture2dArray,
+    Texture2dMultisample,
+    Texture2dMultisampleArray,
+    Texture3d,
 }
 
 /// Builds a new texture.
@@ -69,21 +97,25 @@ pub fn new_texture<'a, F, P>(facade: &F, format: TextureFormatRequest,
         }
     }
 
-    let texture_type = if height.is_none() && depth.is_none() {
+    let (stored_ty, texture_type) = if height.is_none() && depth.is_none() {
         assert!(samples.is_none());
-        if array_size.is_none() { gl::TEXTURE_1D } else { gl::TEXTURE_1D_ARRAY }
+        if array_size.is_none() {
+            (TextureType::Texture1d, gl::TEXTURE_1D)
+        } else {
+            (TextureType::Texture1dArray, gl::TEXTURE_1D_ARRAY)
+        }
 
     } else if depth.is_none() {
         match (array_size.is_some(), samples.is_some()) {
-            (false, false) => gl::TEXTURE_2D,
-            (true, false) => gl::TEXTURE_2D_ARRAY,
-            (false, true) => gl::TEXTURE_2D_MULTISAMPLE,
-            (true, true) => gl::TEXTURE_2D_MULTISAMPLE_ARRAY,
+            (false, false) => (TextureType::Texture2d, gl::TEXTURE_2D),
+            (true, false) => (TextureType::Texture2dArray, gl::TEXTURE_2D_ARRAY),
+            (false, true) => (TextureType::Texture2dMultisample, gl::TEXTURE_2D_MULTISAMPLE),
+            (true, true) => (TextureType::Texture2dMultisampleArray, gl::TEXTURE_2D_MULTISAMPLE_ARRAY),
         }
 
     } else {
         assert!(samples.is_none());
-        gl::TEXTURE_3D
+        (TextureType::Texture3d, gl::TEXTURE_3D)
     };
 
     let generate_mipmaps = generate_mipmaps && match format {
@@ -347,8 +379,26 @@ pub fn new_texture<'a, F, P>(facade: &F, format: TextureFormatRequest,
         height: height,
         depth: depth,
         array_size: array_size,
+        ty: stored_ty,
         levels: texture_levels as u32,
     })
+}
+
+impl<'a> TextureAnyMipmap<'a> {
+    /// Returns the texture.
+    pub fn get_texture(&self) -> &'a TextureAny {
+        self.texture
+    }
+
+    /// Returns the level of the texture.
+    pub fn get_level(&self) -> u32 {
+        self.level
+    }
+
+    /// Returns the layer of the texture.
+    pub fn get_layer(&self) -> u32 {
+        self.layer
+    }
 }
 
 /// Changes some parts of the texture.
@@ -444,11 +494,10 @@ impl TextureAny {
     {
         assert_eq!(level, 0);   // TODO:
 
-        let attachment = fbo::Attachment::Texture {
-            id: self.id,
-            bind_point: self.bind_point,
+        let attachment = fbo::Attachment::TextureLayer {
+            texture: self,
             layer: 0,
-            level: 0
+            level: 0,
         };
 
         let rect = Rect {
@@ -473,11 +522,10 @@ impl TextureAny {
 
         let size = self.width as usize * self.height.unwrap_or(1) as usize * 4;
 
-        let attachment = fbo::Attachment::Texture {
-            id: self.id,
-            bind_point: self.bind_point,
+        let attachment = fbo::Attachment::TextureLayer {
+            texture: self,
             layer: 0,
-            level: 0
+            level: 0,
         };
 
         let rect = Rect {
@@ -524,6 +572,11 @@ impl TextureAny {
         self.levels
     }
 
+    /// Returns the type of the texture (1D, 2D, 3D, etc.).
+    pub fn get_texture_type(&self) -> TextureType {
+        self.ty
+    }
+
     /// Determines the internal format of this texture.
     ///
     /// Returns `None` if the backend doesn't allow querying the actual format.
@@ -531,6 +584,31 @@ impl TextureAny {
         // TODO: cache this value in the texture
         let mut ctxt = self.context.make_current();
         get_format::get_format_if_supported(&mut ctxt, self)
+    }
+
+    /// Returns a structure that represents a specific mipmap of the texture.
+    ///
+    /// Returns `None` if out of range.
+    pub fn mipmap(&self, layer: u32, level: u32) -> Option<TextureAnyMipmap> {
+        if layer >= self.array_size.unwrap_or(1) {
+            return None;
+        }
+
+        if level >= self.levels {
+            return None;
+        }
+
+        Some(TextureAnyMipmap {
+            texture: self,
+            layer: layer,
+            level: level,
+        })
+    }
+}
+
+impl TextureExt for TextureAny {
+    fn get_bind_point(&self) -> gl::types::GLenum {
+        self.bind_point
     }
 }
 

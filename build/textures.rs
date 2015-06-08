@@ -173,16 +173,16 @@ fn build_texture<W: Write>(mut dest: &mut W, ty: TextureType, dimensions: Textur
         let format = match ty {
             TextureType::Integral | TextureType::Unsigned => {
                 "///
-                /// ## Features
+                /// # Features
                 ///
-                /// Only available if the \"gl_integral_textures\" feature is enabled.
+                /// Only available if the 'gl_integral_textures' feature is enabled.
                 #[cfg(feature = \"gl_integral_textures\")]"
             },
             TextureType::Depth | TextureType::DepthStencil => {
                 "///
-                /// ## Features
+                /// # Features
                 ///
-                /// Only available if the \"gl_depth_textures\" feature is enabled.
+                /// Only available if the 'gl_depth_textures' feature is enabled.
                 #[cfg(feature = \"gl_depth_textures\")]"
             },
             TextureType::Stencil => "#[cfg(feature = \"gl_stencil_textures\")]",
@@ -192,30 +192,30 @@ fn build_texture<W: Write>(mut dest: &mut W, ty: TextureType, dimensions: Textur
         let dim = match dimensions {
             TextureDimensions::Texture1d => {
                 "///
-                /// ## Features
+                /// # Features
                 ///
-                /// Only available if the \"gl_texture_1d\" feature is enabled.
+                /// Only available if the 'gl_texture_1d' feature is enabled.
                 #[cfg(feature = \"gl_texture_1d\")]"
             },
             TextureDimensions::Texture2dArray | TextureDimensions::Texture3d => {
                 "///
-                /// ## Features
+                /// # Features
                 /// 
-                /// Only available if the \"gl_texture_3d\" feature is enabled.
+                /// Only available if the 'gl_texture_3d' feature is enabled.
                 #[cfg(feature = \"gl_texture_3d\")]"
             },
             TextureDimensions::Texture2dMultisample => {
                 "///
-                /// ## Features
+                /// # Features
                 /// 
-                /// Only available if the \"gl_texture_multisample\" feature is enabled.
+                /// Only available if the 'gl_texture_multisample' feature is enabled.
                 #[cfg(feature = \"gl_texture_multisample\")]"
             },
             TextureDimensions::Texture2dMultisampleArray => {
                 "///
-                /// ## Features
+                /// # Features
                 ///
-                /// Only available if the \"gl_texture_multisample_array\" feature is enabled.
+                /// Only available if the 'gl_texture_multisample_array' feature is enabled.
                 #[cfg(feature = \"gl_texture_multisample_array\")]"
             },
             _ => ""
@@ -345,11 +345,19 @@ fn build_texture<W: Write>(mut dest: &mut W, ty: TextureType, dimensions: Textur
                                 fn as_uniform_value(&self) -> UniformValue {{
                                     UniformValue::{myname}(*self, None)
                                 }}
+
+                                fn matches(_: &UniformType) -> bool {{
+                                    false
+                                }}
                             }}
 
                             impl<'a> AsUniformValue for Sampler<'a, {myname}> {{
                                 fn as_uniform_value(&self) -> UniformValue {{
                                     UniformValue::{myname}(self.0, Some(self.1))
+                                }}
+
+                                fn matches(_: &UniformType) -> bool {{
+                                    false
                                 }}
                             }}
 
@@ -381,61 +389,51 @@ fn build_texture<W: Write>(mut dest: &mut W, ty: TextureType, dimensions: Textur
 
     // `ToXXXAttachment` trait impl
     if dimensions == TextureDimensions::Texture2d || dimensions == TextureDimensions::Texture2dMultisample {
-        let suffix = match dimensions {
-            TextureDimensions::Texture1d => "Texture1d",
-            TextureDimensions::Texture2d => "Texture2d",
-            TextureDimensions::Texture2dMultisample => "Texture2dMultisample",
-            TextureDimensions::Texture3d => "Texture3d",
-            TextureDimensions::Texture1dArray => "Texture1dArray",
-            TextureDimensions::Texture2dArray => "Texture2dArray",
-            TextureDimensions::Texture2dMultisampleArray => "Texture2dMultisampleArray",
-        };
-
         match ty {
             TextureType::Regular => {
                 (writeln!(dest, "
                         impl ::framebuffer::ToColorAttachment for {name} {{
                             fn to_color_attachment(&self) -> ::framebuffer::ColorAttachment {{
-                                ::framebuffer::ColorAttachment::{suffix}(self.main_level())
+                                ::framebuffer::ColorAttachment::Texture(self.0.mipmap(0, 0).unwrap())
                             }}
                         }}
-                    ", name = name, suffix = suffix)).unwrap();
+                    ", name = name)).unwrap();
             },
             TextureType::Srgb => {
                 (writeln!(dest, "
                         impl ::framebuffer::ToColorAttachment for {name} {{
                             fn to_color_attachment(&self) -> ::framebuffer::ColorAttachment {{
-                                ::framebuffer::ColorAttachment::Srgb{suffix}(self.main_level())
+                                ::framebuffer::ColorAttachment::Texture(self.0.mipmap(0, 0).unwrap())
                             }}
                         }}
-                    ", name = name, suffix = suffix)).unwrap();
+                    ", name = name)).unwrap();
             },
             TextureType::Depth => {
                 (writeln!(dest, "
                         impl ::framebuffer::ToDepthAttachment for {name} {{
                             fn to_depth_attachment(&self) -> ::framebuffer::DepthAttachment {{
-                                ::framebuffer::DepthAttachment::{suffix}(self.main_level())
+                                ::framebuffer::DepthAttachment::Texture(self.0.mipmap(0, 0).unwrap())
                             }}
                         }}
-                    ", name = name, suffix = suffix)).unwrap();
+                    ", name = name)).unwrap();
             },
             TextureType::Stencil => {
                 (writeln!(dest, "
                         impl ::framebuffer::ToStencilAttachment for {name} {{
                             fn to_stencil_attachment(&self) -> ::framebuffer::StencilAttachment {{
-                                ::framebuffer::StencilAttachment::{suffix}(self.main_level())
+                                ::framebuffer::StencilAttachment::Texture(self.0.mipmap(0, 0).unwrap())
                             }}
                         }}
-                    ", name = name, suffix = suffix)).unwrap();
+                    ", name = name)).unwrap();
             },
             TextureType::DepthStencil => {
                 (writeln!(dest, "
                         impl ::framebuffer::ToDepthStencilAttachment for {name} {{
                             fn to_depth_stencil_attachment(&self) -> ::framebuffer::DepthStencilAttachment {{
-                                ::framebuffer::DepthStencilAttachment::{suffix}(self.main_level())
+                                ::framebuffer::DepthStencilAttachment::Texture(self.0.mipmap(0, 0).unwrap())
                             }}
                         }}
-                    ", name = name, suffix = suffix)).unwrap();
+                    ", name = name)).unwrap();
             },
             _ => ()
         }

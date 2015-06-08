@@ -1,6 +1,6 @@
 use buffer::{BufferView, BufferViewAny, BufferType, BufferCreationError};
 use buffer::Mapping as BufferMapping;
-use uniforms::{AsUniformValue, UniformValue, UniformBlock};
+use uniforms::{AsUniformValue, UniformValue, UniformBlock, UniformType};
 
 use std::ops::{Deref, DerefMut};
 
@@ -26,7 +26,7 @@ pub struct TypelessUniformBuffer {
 impl<T> UniformBuffer<T> where T: Copy + Send + 'static {
     /// Uploads data in the uniforms buffer.
     ///
-    /// ## Features
+    /// # Features
     ///
     /// Only available if the `gl_uniform_blocks` feature is enabled.
     #[cfg(feature = "gl_uniform_blocks")]
@@ -58,6 +58,10 @@ impl<T> UniformBuffer<T> where T: Copy + Send + 'static {
     }
 
     /// Reads the content of the buffer.
+    ///
+    /// # Features
+    ///
+    /// Only available if the 'gl_read_buffer' feature is enabled.
     #[cfg(feature = "gl_read_buffer")]
     pub fn read(&self) -> T {
         self.read_if_supported().unwrap()
@@ -100,5 +104,9 @@ impl<T> DerefMut for UniformBuffer<T> where T: Send + Copy + 'static {
 impl<'a, T> AsUniformValue for &'a UniformBuffer<T> where T: UniformBlock + Send + Copy + 'static {
     fn as_uniform_value(&self) -> UniformValue {
         UniformValue::Block(self.buffer.as_slice_any(), <T as UniformBlock>::matches)
+    }
+
+    fn matches(_: &UniformType) -> bool {
+        false
     }
 }

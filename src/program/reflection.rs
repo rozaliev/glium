@@ -109,7 +109,7 @@ pub struct TransformFeedbackVarying {
 }
 
 /// Type of transform feedback. Only used with the legacy interface.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum TransformFeedbackMode {
     /// Each value is interleaved in the same buffer.
     Interleaved,
@@ -118,12 +118,20 @@ pub enum TransformFeedbackMode {
     Separate,
 }
 
+/// Type of primitives that is being output by transform feedback.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum OutputPrimitives {
+    /// Points.
+    Points,
+    /// Lines.
+    Lines,
+    /// Triangles.
+    Triangles,
+}
+
 pub unsafe fn reflect_uniforms(ctxt: &mut CommandContext, program: Handle)
                                -> HashMap<String, Uniform>
 {
-    // reflecting program uniforms
-    let mut uniforms = HashMap::new();
-
     // number of active uniforms
     let active_uniforms = {
         let mut active_uniforms: gl::types::GLint = mem::uninitialized();
@@ -141,6 +149,9 @@ pub unsafe fn reflect_uniforms(ctxt: &mut CommandContext, program: Handle)
         };
         active_uniforms
     };
+
+    // the result of this function
+    let mut uniforms = HashMap::with_capacity(active_uniforms as usize);
 
     for uniform_id in (0 .. active_uniforms) {
         let mut uniform_name_tmp: Vec<u8> = Vec::with_capacity(64);
@@ -200,8 +211,6 @@ pub unsafe fn reflect_uniforms(ctxt: &mut CommandContext, program: Handle)
 pub unsafe fn reflect_attributes(ctxt: &mut CommandContext, program: Handle)
                                  -> HashMap<String, Attribute>
 {
-    let mut attributes = HashMap::new();
-
     // number of active attributes
     let active_attributes = {
         let mut active_attributes: gl::types::GLint = mem::uninitialized();
@@ -219,6 +228,9 @@ pub unsafe fn reflect_attributes(ctxt: &mut CommandContext, program: Handle)
         };
         active_attributes
     };
+
+    // the result of this function
+    let mut attributes = HashMap::with_capacity(active_attributes as usize);
 
     for attribute_id in (0 .. active_attributes) {
         let mut attr_name_tmp: Vec<u8> = Vec::with_capacity(64);
@@ -291,14 +303,14 @@ pub unsafe fn reflect_uniform_blocks(ctxt: &mut CommandContext, program: Handle)
         _ => unreachable!()
     };
 
-    let mut blocks = HashMap::new();
-
     let mut active_blocks: gl::types::GLint = mem::uninitialized();
     ctxt.gl.GetProgramiv(program, gl::ACTIVE_UNIFORM_BLOCKS, &mut active_blocks);
 
     let mut active_blocks_max_name_len: gl::types::GLint = mem::uninitialized();
     ctxt.gl.GetProgramiv(program, gl::ACTIVE_UNIFORM_BLOCK_MAX_NAME_LENGTH,
                          &mut active_blocks_max_name_len);
+
+    let mut blocks = HashMap::with_capacity(active_blocks as usize);
 
     for block_id in (0 .. active_blocks) {
         // getting the name of the block
@@ -492,28 +504,31 @@ pub unsafe fn reflect_transform_feedback(ctxt: &mut CommandContext, program: Han
                 });
             }
 
+            let ty = glenum_to_attribute_type(ty as gl::types::GLenum);
+
             let prev_size = result[0].stride;
-            result[0].stride += size as usize;
-            result[0].elements.push(TransformFeedbackVarying {
+            result[0].stride += size as usize * ty.get_size_bytes();
+            result[0].elements.push(TransformFeedbackVarying {        // TODO: handle arrays
                 name: name,
-                size: size as usize,
+                size: size as usize * ty.get_size_bytes(),
                 offset: prev_size,
-                ty: glenum_to_attribute_type(ty as gl::types::GLenum),
+                ty: ty,
             });
 
         } else if buffer_mode == TransformFeedbackMode::Separate {
             let id = result.len();
+            let ty = glenum_to_attribute_type(ty as gl::types::GLenum);
             result.push(TransformFeedbackBuffer {
                 id: id as i32,
                 elements: vec![
                     TransformFeedbackVarying {
                         name: name,
-                        size: size as usize,
+                        size: size as usize * ty.get_size_bytes(),
                         offset: 0,
-                        ty: glenum_to_attribute_type(ty as gl::types::GLenum),
+                        ty: ty,
                     }
                 ],
-                stride: size as usize,
+                stride: size as usize * ty.get_size_bytes(),
             });
 
         } else {
@@ -522,6 +537,73 @@ pub unsafe fn reflect_transform_feedback(ctxt: &mut CommandContext, program: Han
     }
 
     result
+}
+
+/// Obtains the type of data that the geometry shader stage outputs.
+///
+/// # Unsafety
+///
+/// - `program` must be a valid handle to a program.
+/// - The program **must** contain a geometry shader.
+pub unsafe fn reflect_geometry_output_type(ctxt: &mut CommandContext, program: Handle)
+                                           -> OutputPrimitives
+{
+    let mut value = mem::uninitialized();
+
+    match program {
+        Handle::Id(program) => {
+            assert!(ctxt.version >= &Version(Api::Gl, 2, 0) ||
+                    ctxt.version >= &Version(Api::GlEs, 2, 0));
+            ctxt.gl.GetProgramiv(program, gl::GEOMETRY_OUTPUT_TYPE, &mut value);
+        },
+        Handle::Handle(program) => {
+            assert!(ctxt.extensions.gl_arb_vertex_shader);
+            ctxt.gl.GetObjectParameterivARB(program, gl::GEOMETRY_OUTPUT_TYPE, &mut value);
+        }
+    };
+
+    match value as gl::types::GLenum {
+        gl::POINTS => OutputPrimitives::Points,
+        gl::LINE_STRIP => OutputPrimitives::Lines,
+        gl::TRIANGLE_STRIP => OutputPrimitives::Triangles,
+        _ => unreachable!()
+    }
+}
+
+/// Obtains the type of data that the tessellation evaluation shader stage outputs.
+///
+/// # Panic
+///
+/// Panicks if `OutputPrimitives` can't represent the output of the tessellation evaluation.
+/// To avoid this situation, don't call this function if the program has a geometry shader.
+///
+/// # Unsafety
+///
+/// - `program` must be a valid handle to a program.
+/// - The program **must** contain a tessellation evaluation shader.
+pub unsafe fn reflect_tess_eval_output_type(ctxt: &mut CommandContext, program: Handle)
+                                            -> OutputPrimitives
+{
+    let mut value = mem::uninitialized();
+
+    match program {
+        Handle::Id(program) => {
+            assert!(ctxt.version >= &Version(Api::Gl, 2, 0) ||
+                    ctxt.version >= &Version(Api::GlEs, 2, 0));
+            ctxt.gl.GetProgramiv(program, gl::TESS_GEN_MODE, &mut value);
+        },
+        Handle::Handle(program) => {
+            assert!(ctxt.extensions.gl_arb_vertex_shader);
+            ctxt.gl.GetObjectParameterivARB(program, gl::TESS_GEN_MODE, &mut value);
+        }
+    };
+
+    match value as gl::types::GLenum {
+        gl::TRIANGLES => OutputPrimitives::Triangles,
+        gl::ISOLINES => OutputPrimitives::Lines,
+        gl::QUADS => panic!(),
+        _ => unreachable!()
+    }
 }
 
 fn glenum_to_uniform_type(ty: gl::types::GLenum) -> UniformType {

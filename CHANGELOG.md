@@ -1,5 +1,19 @@
 # Change Log
 
+## Version 0.5.2
+
+ - Added `vertex::TransformFeedbackSession` and `transform_feedback` to the draw parameters.
+ - Added `RenderBufferAny`. Render buffers now deref to `RenderBufferAny`.
+ - Deprecated `.into_vertex_buffer_any()` in favor of `.into()`.
+ - Added `.get_total_bits()` to `texture::InternalFormat`.
+ - Fixed values in uniform blocks being required to implement the `Default` trait.
+ - Fixed buffer sometimes not always correctly unbinded.
+
+## Version 0.5.1 (2015-05-30)
+
+ - Added `index::DrawCommandsNoIndicesBuffer` for multidraw indirect drawing.
+ - Fixed a potential panic when using a buffer.
+
 ## Version 0.5.0 (2015-05-27)
 
  - `IndexBuffer` now takes the type of indices as template parameter.

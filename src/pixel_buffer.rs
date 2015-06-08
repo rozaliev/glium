@@ -80,6 +80,14 @@ impl<T> BufferViewExt for PixelBuffer<T> where T: PixelValue {
     fn get_buffer_id(&self, ctxt: &mut CommandContext) -> gl::types::GLuint {
         self.buffer.get_buffer_id(ctxt)
     }
+
+    fn bind_to(&self, ctxt: &mut CommandContext, ty: BufferType) {
+        self.buffer.bind_to(ctxt, ty)
+    }
+
+    fn indexed_bind_to(&self, ctxt: &mut CommandContext, ty: BufferType, index: gl::types::GLuint) {
+        self.buffer.indexed_bind_to(ctxt, ty, index)
+    }
 }
 
 // TODO: rework this
